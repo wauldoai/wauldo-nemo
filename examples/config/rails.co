@@ -1,0 +1,22 @@
+# Output rail: every bot message is fact-checked against the retrieved
+# context before it reaches the user. The `wauldo_fact_check` action is
+# registered in Python (see examples/run_example.py).
+#
+# `$relevant_chunks` is populated by NeMo's knowledge-base / RAG step;
+# swap it for whatever variable holds your ground-truth context.
+
+define flow wauldo verify output
+  $result = execute wauldo_fact_check(bot_message=$bot_message, context=$relevant_chunks)
+
+  if $result.decision == "refuse"
+    bot refuse unsupported answer
+    stop
+
+  if $result.decision == "annotate"
+    bot inform answer is weakly supported
+
+define bot refuse unsupported answer
+  "I can't confirm that from the provided sources, so I'd rather not answer."
+
+define bot inform answer is weakly supported
+  "(Note: parts of this answer are only weakly supported by the sources.)"
