@@ -1,3 +1,7 @@
+# The `main` model is your generation LLM — keep it a standard provider
+# (OpenAI/Anthropic/local). Do NOT set it to Wauldo: Wauldo is a guarded API
+# and rejects NeMo's internal dialog meta-prompts with 403 security_violation.
+# Wauldo's job is the output rail below (verification), not generation.
 models:
   - type: main
     engine: openai
