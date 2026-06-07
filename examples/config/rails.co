@@ -1,12 +1,10 @@
-# Output rail: every bot message is fact-checked against the retrieved
-# context before it reaches the user. The `wauldo_fact_check` action is
-# registered in Python (see examples/run_example.py).
-#
-# `$relevant_chunks` is populated by NeMo's knowledge-base / RAG step;
-# swap it for whatever variable holds your ground-truth context.
+# Output rails backed by Wauldo. The actions are registered in Python
+# (see examples/run_example.py). `$relevant_chunks` is populated by NeMo's
+# knowledge base / retriever; if it's empty the fact-check rail returns
+# decision="annotate" (note="no_context") instead of crashing.
 
 define flow wauldo verify output
-  $result = execute wauldo_fact_check(bot_message=$bot_message, context=$relevant_chunks)
+  $result = execute wauldo_fact_check(bot_message=$bot_message, source_context=$relevant_chunks)
 
   if $result.decision == "refuse"
     bot refuse unsupported answer
@@ -15,8 +13,26 @@ define flow wauldo verify output
   if $result.decision == "annotate"
     bot inform answer is weakly supported
 
+# Optional second rail — enable with register(rails, verify_citations=True)
+# and add "wauldo check citations" to rails.output.flows in config.yml.
+define flow wauldo check citations
+  $cite = execute wauldo_verify_citations(bot_message=$bot_message)
+
+  if $cite.decision == "refuse"
+    bot refuse uncited answer
+    stop
+
+  if $cite.decision == "annotate"
+    bot inform answer is under cited
+
 define bot refuse unsupported answer
   "I can't confirm that from the provided sources, so I'd rather not answer."
 
 define bot inform answer is weakly supported
   "(Note: parts of this answer are only weakly supported by the sources.)"
+
+define bot refuse uncited answer
+  "I'd rather not answer without citing sources for that."
+
+define bot inform answer is under cited
+  "(Note: parts of this answer are not backed by a cited source.)"

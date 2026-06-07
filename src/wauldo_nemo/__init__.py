@@ -1,19 +1,30 @@
-"""wauldo-nemo — Wauldo fact-checking as a NeMo Guardrails output rail.
+"""wauldo-nemo — Wauldo verification as NeMo Guardrails rails.
 
 Public surface:
-- `wauldo_fact_check_action` — the async action (verify + decide).
-- `register` — register it on an `LLMRails` instance.
+- `register` — register the rails on an `LLMRails` instance.
+- `wauldo_fact_check_action` / `wauldo_verify_citations_action` — the async actions.
+- `RailConfig` — operational config (missing-context, fail-open/closed, timeout).
 - `RailDecision`, `PolicyThresholds`, `decide` — the framework-agnostic policy.
 """
 
-from .actions import ALLOW, ANNOTATE, REFUSE, register, wauldo_fact_check_action
+from .actions import (
+    ALLOW,
+    ANNOTATE,
+    REFUSE,
+    register,
+    wauldo_fact_check_action,
+    wauldo_verify_citations_action,
+)
+from .config import RailConfig
 from .policy import PolicyThresholds, RailDecision, decide
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 __all__ = [
-    "wauldo_fact_check_action",
     "register",
+    "wauldo_fact_check_action",
+    "wauldo_verify_citations_action",
+    "RailConfig",
     "decide",
     "RailDecision",
     "PolicyThresholds",

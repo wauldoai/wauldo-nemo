@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "wauldo-nemo"
-version = "0.1.0"
-description = "Wauldo fact-checking as a NeMo Guardrails output rail"
+version = "0.2.0"
+description = "Wauldo verification as NeMo Guardrails rails (fact-check + citations)"
 readme = "README.md"
 license = { text = "MIT" }
 license-files = ["LICENSE"]
@@ -29,7 +29,10 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
-    "wauldo>=0.19.0",
+    # [async] pulls aiohttp — the rails use the async client so they never
+    # block NeMo's event loop. 0.19.1 makes source_context required + adds
+    # the sync guard alias.
+    "wauldo[async]>=0.19.1",
 ]
 
 [project.optional-dependencies]
