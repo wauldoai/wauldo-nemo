@@ -2,6 +2,15 @@
 
 All notable changes to wauldo-nemo.
 
+## [0.2.1] - 2026-06-08
+
+### Fixed
+- **Broken fresh install**: the dependency was `wauldo[async]`, but that extra
+  does not exist on the SDK (it never pulled aiohttp). A clean
+  `pip install wauldo-nemo` therefore shipped without aiohttp and the async
+  rails `ImportError`ed on the first real call. Now depends on `aiohttp>=3.9`
+  directly.
+
 ## [0.2.0] - 2026-06-07
 
 ### Fixed

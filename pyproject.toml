@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "wauldo-nemo"
-version = "0.2.0"
+version = "0.2.1"
 description = "Wauldo verification as NeMo Guardrails rails (fact-check + citations)"
 readme = "README.md"
 license = { text = "MIT" }
@@ -29,10 +29,13 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
-    # [async] pulls aiohttp — the rails use the async client so they never
-    # block NeMo's event loop. 0.19.1 makes source_context required + adds
-    # the sync guard alias.
-    "wauldo[async]>=0.19.1",
+    # 0.19.1 makes source_context required + adds the sync guard alias.
+    "wauldo>=0.19.1",
+    # The rails use the async SDK client (so they never block NeMo's loop),
+    # which needs aiohttp. The SDK does NOT pull it (no `async` extra exists),
+    # so we depend on it directly — otherwise a fresh install ImportErrors on
+    # the first real call.
+    "aiohttp>=3.9",
 ]
 
 [project.optional-dependencies]
