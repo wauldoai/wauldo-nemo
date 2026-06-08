@@ -123,3 +123,27 @@ def test_citation_rail_passes_when_sufficient():
     )
     out = run(wauldo_verify_citations_action("answer", client=FakeClient(vc=vc)))
     assert out["decision"] == "allow"
+
+
+# ── retry config threads to the transport (latency bound on outage) ──────
+
+
+def test_client_from_env_applies_retry_config(monkeypatch):
+    """A guardrail must fail fast: the RailConfig retry knobs reach the SDK
+    transport so `timeout` is the real upper bound on outage latency, not
+    `retries × backoff`."""
+    from wauldo_nemo.actions import _client_from_env
+
+    monkeypatch.setenv("WAULDO_BASE_URL", "http://x")
+    monkeypatch.setenv("WAULDO_API_KEY", "k")
+    client = _client_from_env(RailConfig(max_retries=1, retry_backoff=0.5))
+    transport = getattr(client, "_transport", None)
+    assert transport is not None
+    assert transport.max_retries == 1
+    assert transport.retry_backoff == 0.5
+
+
+def test_rail_config_defaults_to_single_attempt():
+    """Default must be fail-fast (1 attempt) — a verification outage cannot
+    add backoff latency to every response."""
+    assert RailConfig().max_retries == 1

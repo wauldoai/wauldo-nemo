@@ -14,6 +14,12 @@ All notable changes to wauldo-nemo.
   client (`AsyncHttpClient`), and reuses a single client per `register()`.
 
 ### Added
+- **Fail-fast retries** (`RailConfig.max_retries`, default `1`): the rail sits in
+  the response hot path, so the SDK's default 3-retry backoff would add ~3s to
+  *every* response during a Wauldo outage before `on_error` fired. The default is
+  now a single attempt — `timeout` is the real upper bound on added latency.
+  Outage-added latency measured 3.15s → 0.01s. Raise `max_retries` to trade
+  latency for resilience.
 - **Failure policy** (`RailConfig.on_error`): fail-open (default, flag and pass) or
   fail-closed (`RailDecision.REFUSE`) when Wauldo is unreachable.
 - **Per-claim evidence**: the fact-check action now returns `claims[]` (each with

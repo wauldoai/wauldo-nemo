@@ -35,8 +35,19 @@ class RailConfig:
     #: verification outage doesn't break the bot; REFUSE = fail-closed.
     on_error: RailDecision = RailDecision.PASS
 
-    #: Hard timeout (seconds) on the verification round-trip.
+    #: Hard timeout (seconds) on a SINGLE verification attempt.
     timeout: float = 8.0
+
+    #: Number of verification attempts before giving up and applying
+    #: ``on_error``. Default 1 (single attempt, fail fast) — a guardrail sits
+    #: in the response hot path, so retrying a down/slow Wauldo with backoff
+    #: would add that backoff to *every* response before fail-open/closed
+    #: kicks in. Raise it only if you'd rather wait than degrade. With the
+    #: default, ``timeout`` is the real upper bound on added latency.
+    max_retries: int = 1
+
+    #: Backoff base (seconds) between attempts when ``max_retries`` > 1.
+    retry_backoff: float = 0.5
 
     #: Citation rail: minimum ratio of cited sentences before a response is
     #: flagged as under-cited.

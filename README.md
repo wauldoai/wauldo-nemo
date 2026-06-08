@@ -119,7 +119,8 @@ register(
 | `mode` | `"lexical"` | `lexical` (fast) / `hybrid` / `semantic`. |
 | `on_missing_context` | `ANNOTATE` | No context to verify against → can't fact-check. |
 | `on_error` | `PASS` | Wauldo unreachable → **fail-open** (flag) vs `REFUSE` (fail-closed). |
-| `timeout` | `8.0` | Verification round-trip timeout (seconds). |
+| `timeout` | `8.0` | Timeout (seconds) on a **single** verification attempt. |
+| `max_retries` | `1` | Attempts before applying `on_error`. Default `1` = fail fast: a guardrail is in the hot path, so retrying a down Wauldo with backoff would add latency to every response. With the default, `timeout` is the real latency bound. |
 | `min_citation_ratio` | `0.5` | Citation rail: minimum cited-sentence ratio. |
 | `on_insufficient_citations` | `ANNOTATE` | Citation rail decision when under-cited. |
 

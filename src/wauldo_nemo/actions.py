@@ -37,11 +37,13 @@ _DECISION_TO_STR = {
 }
 
 
-def _client_from_env(timeout: float) -> AsyncHttpClient:
+def _client_from_env(config: RailConfig) -> AsyncHttpClient:
     return AsyncHttpClient(
         base_url=os.environ.get("WAULDO_BASE_URL", "https://api.wauldo.com"),
         api_key=os.environ.get("WAULDO_API_KEY"),
-        timeout=int(timeout),
+        timeout=int(config.timeout),
+        max_retries=config.max_retries,
+        retry_backoff=config.retry_backoff,
     )
 
 
@@ -131,7 +133,7 @@ async def wauldo_fact_check_action(
         return _degraded(config.on_missing_context, "no_context")
 
     own_client = client is None
-    client = client or _client_from_env(config.timeout)
+    client = client or _client_from_env(config)
     try:
         result = await client.fact_check(bot_message, resolved, mode=config.mode)
     except Exception as exc:  # noqa: BLE001 — network / 5xx / timeout
@@ -173,7 +175,7 @@ async def wauldo_verify_citations_action(
     """
     config = config or RailConfig()
     own_client = client is None
-    client = client or _client_from_env(config.timeout)
+    client = client or _client_from_env(config)
     try:
         result = await client.verify_citation(
             bot_message, sources=sources, threshold=config.min_citation_ratio
@@ -238,7 +240,7 @@ def register(
     Enable the citation rail with `verify_citations=True`.
     """
     config = config or RailConfig(thresholds=thresholds or PolicyThresholds())
-    client = _client_from_env(config.timeout)
+    client = _client_from_env(config)
 
     if fact_check:
         # `context` is auto-injected by NeMo (the conversation context dict);
