@@ -2,6 +2,7 @@
 
 [![PyPI](https://img.shields.io/pypi/v/wauldo-nemo.svg)](https://pypi.org/project/wauldo-nemo/)
 [![Python](https://img.shields.io/pypi/pyversions/wauldo-nemo.svg)](https://pypi.org/project/wauldo-nemo/)
+[![CI](https://github.com/wauldoai/wauldo-nemo/actions/workflows/publish.yml/badge.svg)](https://github.com/wauldoai/wauldo-nemo/actions/workflows/publish.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 Independent answer verification as [NeMo Guardrails](https://github.com/NVIDIA/NeMo-Guardrails)

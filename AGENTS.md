@@ -1,4 +1,6 @@
-# CLAUDE.md — wauldo-nemo
+# AGENTS.md — wauldo-nemo
+
+> Contributor & coding-agent guide (vendor-neutral; read by AGENTS.md-aware tools).
 
 **Langue** : échanges en français. Code + commits en anglais.
 
