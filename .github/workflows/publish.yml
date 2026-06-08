@@ -24,6 +24,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       id-token: write # OIDC token for PyPI Trusted Publishing
+      contents: read # declaring permissions zeroes the rest — keep repo checkout
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
