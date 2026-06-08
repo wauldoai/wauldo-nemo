@@ -15,6 +15,8 @@ This is a thin adapter. All verdict logic lives in the
 [`wauldo` SDK](https://pypi.org/project/wauldo/); this repo only maps a
 verification result to a rail decision and never re-implements parsing.
 
+> 📖 **Integration guide & live overview:** <https://wauldo.com/integrations/nemo>
+
 ## Why not NeMo's built-in `self check facts`?
 
 NeMo's built-in self-check rail asks the **same** generation LLM *"is this
