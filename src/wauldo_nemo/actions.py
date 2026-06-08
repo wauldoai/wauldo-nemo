@@ -17,10 +17,13 @@ from __future__ import annotations
 
 import logging
 import os
+import time
+import uuid
 from typing import Any, Optional
 
 from wauldo.async_client import AsyncHttpClient
 
+from ._otel import span
 from .config import RailConfig
 from .policy import PolicyThresholds, RailDecision, decide
 
@@ -47,7 +50,7 @@ def _client_from_env(config: RailConfig) -> AsyncHttpClient:
     )
 
 
-def _claims_digest(claims: Any) -> list[dict]:
+def _claims_digest(claims: Any) -> list[dict[str, Any]]:
     """Surface per-claim evidence — the headline explainability that a plain
     pass/fail throws away."""
     out = []
@@ -104,6 +107,49 @@ def _resolve_context(source_context: Optional[str], context: Any) -> Optional[st
     return None
 
 
+def _log_decision(kind: str, payload: dict[str, Any]) -> None:
+    """Emit one structured log per decision. ``extra={"wauldo": {...}}`` keeps
+    it formatter-agnostic — plain logging, structlog, or a JSON formatter the
+    caller already runs all pick it up. The verbose lists are dropped."""
+    skip = {"claims", "uncited_sentences"}
+    logger.info(kind, extra={"wauldo": {k: v for k, v in payload.items() if k not in skip}})
+
+
+def _finalize(
+    payload: dict[str, Any],
+    config: RailConfig,
+    request_id: str,
+    latency_ms: Optional[float],
+    kind: str,
+) -> dict[str, Any]:
+    """Attach correlation fields, apply shadow mode, and log — the single exit
+    path for every rail return. Shadow never blocks the user (decision forced to
+    ``allow``) but the real verdict stays in the payload + the log."""
+    payload["request_id"] = request_id
+    payload["latency_ms"] = latency_ms
+    shadowed = config.shadow and payload["decision"] != ALLOW
+    if shadowed:
+        payload["decision"] = ALLOW
+    payload["shadowed"] = shadowed
+    _log_decision(kind, payload)
+    return payload
+
+
+def _refuse_message(template: str, claims: list[dict[str, Any]], verdict: str) -> Optional[str]:
+    """Render ``config.refuse_template`` from the first unsupported claim. A bad
+    template must never crash the generation — on error we log and skip it."""
+    failed = next((c for c in claims if not c.get("supported")), {})
+    try:
+        return template.format(
+            first_failed_claim=failed.get("text", ""),
+            evidence=failed.get("evidence") or "",
+            verdict=verdict,
+        )
+    except (KeyError, IndexError, ValueError) as exc:
+        logger.warning("invalid refuse_template (%s) — skipping refuse_message", exc)
+        return None
+
+
 async def wauldo_fact_check_action(
     bot_message: str,
     source_context: Optional[str] = None,
@@ -126,44 +172,71 @@ async def wauldo_fact_check_action(
     (each with ``evidence`` / ``reason``).
     """
     config = config or RailConfig(thresholds=thresholds or PolicyThresholds())
+    request_id = uuid.uuid4().hex[:12]
+    kind = "wauldo_fact_check"
 
     resolved = _resolve_context(source_context, context)
     # No ground-truth context → nothing to verify against.
     if not resolved or not resolved.strip():
-        return _degraded(config.on_missing_context, "no_context")
+        return _finalize(
+            _degraded(config.on_missing_context, "no_context"), config, request_id, None, kind
+        )
 
     own_client = client is None
     client = client or _client_from_env(config)
-    try:
-        result = await client.fact_check(bot_message, resolved, mode=config.mode)
-    except Exception as exc:  # noqa: BLE001 — network / 5xx / timeout
-        logger.warning(
-            "wauldo fact-check failed (%s) — applying on_error=%s",
-            exc,
-            config.on_error.name,
-        )
-        return _degraded(config.on_error, f"error:{type(exc).__name__}")
-    finally:
-        if own_client:
-            await _close(client)
+    t0 = time.perf_counter()
+    with span("wauldo.fact_check") as sp:
+        sp.set_attribute("wauldo.request_id", request_id)
+        try:
+            result = await client.fact_check(bot_message, resolved, mode=config.mode)
+        except Exception as exc:  # noqa: BLE001 — network / 5xx / timeout
+            latency_ms = round((time.perf_counter() - t0) * 1000, 1)
+            logger.warning(
+                "wauldo fact-check failed (%s) [request_id=%s] — applying on_error=%s",
+                exc,
+                request_id,
+                config.on_error.name,
+            )
+            return _finalize(
+                _degraded(config.on_error, f"error:{type(exc).__name__}"),
+                config,
+                request_id,
+                latency_ms,
+                kind,
+            )
+        finally:
+            if own_client:
+                await _close(client)
 
-    decision = decide(result, config.thresholds)
-    return {
-        "decision": _DECISION_TO_STR[decision],
-        "verdict": result.verdict,
-        "action": result.action,
-        "confidence": result.confidence,
-        "hallucination_rate": result.hallucination_rate,
-        "supported_claims": result.supported_claims,
-        "total_claims": result.total_claims,
-        "claims": _claims_digest(result.claims),
-        "note": None,
-    }
+        latency_ms = round((time.perf_counter() - t0) * 1000, 1)
+        decision = decide(result, config.thresholds)
+        claims = _claims_digest(result.claims)
+        payload: dict[str, Any] = {
+            "decision": _DECISION_TO_STR[decision],
+            "verdict": result.verdict,
+            "action": result.action,
+            "confidence": result.confidence,
+            "hallucination_rate": result.hallucination_rate,
+            "supported_claims": result.supported_claims,
+            "total_claims": result.total_claims,
+            "claims": claims,
+            "note": None,
+        }
+        if config.refuse_template and decision == RailDecision.REFUSE:
+            payload["refuse_message"] = _refuse_message(
+                config.refuse_template, claims, result.verdict
+            )
+        sp.set_attribute("wauldo.decision", payload["decision"])
+        sp.set_attribute("wauldo.verdict", result.verdict)
+        sp.set_attribute("wauldo.hallucination_rate", result.hallucination_rate)
+        sp.set_attribute("wauldo.total_claims", result.total_claims)
+
+    return _finalize(payload, config, request_id, latency_ms, kind)
 
 
 async def wauldo_verify_citations_action(
     bot_message: str,
-    sources: Optional[list] = None,
+    sources: Optional[list[dict[str, Any]]] = None,
     *,
     client: Optional[AsyncHttpClient] = None,
     config: Optional[RailConfig] = None,
@@ -174,41 +247,86 @@ async def wauldo_verify_citations_action(
     otherwise ``config.on_insufficient_citations``.
     """
     config = config or RailConfig()
+    request_id = uuid.uuid4().hex[:12]
+    kind = "wauldo_verify_citations"
     own_client = client is None
     client = client or _client_from_env(config)
-    try:
-        result = await client.verify_citation(
-            bot_message, sources=sources, threshold=config.min_citation_ratio
-        )
-    except Exception as exc:  # noqa: BLE001
-        logger.warning(
-            "wauldo citation check failed (%s) — applying on_error=%s",
-            exc,
-            config.on_error.name,
-        )
-        return {
-            "decision": _DECISION_TO_STR[config.on_error],
-            "citation_ratio": 0.0,
-            "has_sufficient_citations": False,
-            "phantom_count": 0,
-            "uncited_sentences": [],
-            "note": f"error:{type(exc).__name__}",
-        }
-    finally:
-        if own_client:
-            await _close(client)
+    t0 = time.perf_counter()
+    with span("wauldo.verify_citations") as sp:
+        sp.set_attribute("wauldo.request_id", request_id)
+        try:
+            result = await client.verify_citation(
+                bot_message, sources=sources, threshold=config.min_citation_ratio
+            )
+        except Exception as exc:  # noqa: BLE001
+            latency_ms = round((time.perf_counter() - t0) * 1000, 1)
+            logger.warning(
+                "wauldo citation check failed (%s) [request_id=%s] — applying on_error=%s",
+                exc,
+                request_id,
+                config.on_error.name,
+            )
+            return _finalize(
+                {
+                    "decision": _DECISION_TO_STR[config.on_error],
+                    "citation_ratio": 0.0,
+                    "has_sufficient_citations": False,
+                    "phantom_count": 0,
+                    "uncited_sentences": [],
+                    "note": f"error:{type(exc).__name__}",
+                },
+                config,
+                request_id,
+                latency_ms,
+                kind,
+            )
+        finally:
+            if own_client:
+                await _close(client)
 
-    decision = (
-        RailDecision.PASS if result.has_sufficient_citations else config.on_insufficient_citations
+        latency_ms = round((time.perf_counter() - t0) * 1000, 1)
+        decision = (
+            RailDecision.PASS
+            if result.has_sufficient_citations
+            else config.on_insufficient_citations
+        )
+        payload = {
+            "decision": _DECISION_TO_STR[decision],
+            "citation_ratio": result.citation_ratio,
+            "has_sufficient_citations": result.has_sufficient_citations,
+            "phantom_count": result.phantom_count or 0,
+            "uncited_sentences": result.uncited_sentences,
+            "note": None,
+        }
+        sp.set_attribute("wauldo.decision", payload["decision"])
+        sp.set_attribute("wauldo.citation_ratio", result.citation_ratio)
+
+    return _finalize(payload, config, request_id, latency_ms, kind)
+
+
+def _action_result(payload: dict[str, Any]) -> Any:
+    """Wrap a rail payload in NeMo's ``ActionResult`` so the verdict is both the
+    action's return value (``$result``) AND written into the conversation
+    context — downstream rails / ``$history`` / a UI can read ``$wauldo_evidence``.
+    Falls back to the plain dict if NeMo isn't importable (keeps tests dep-free)."""
+    try:
+        from nemoguardrails.actions.actions import ActionResult
+    except Exception:  # noqa: BLE001
+        return payload
+    evidence = [
+        c["evidence"]
+        for c in payload.get("claims", [])
+        if not c.get("supported") and c.get("evidence")
+    ]
+    return ActionResult(
+        return_value=payload,
+        context_updates={
+            "wauldo_decision": payload["decision"],
+            "wauldo_verdict": payload.get("verdict"),
+            "wauldo_evidence": evidence,
+            "wauldo_request_id": payload.get("request_id"),
+        },
     )
-    return {
-        "decision": _DECISION_TO_STR[decision],
-        "citation_ratio": result.citation_ratio,
-        "has_sufficient_citations": result.has_sufficient_citations,
-        "phantom_count": result.phantom_count or 0,
-        "uncited_sentences": result.uncited_sentences,
-        "note": None,
-    }
 
 
 async def _close(client: AsyncHttpClient) -> None:
@@ -247,18 +365,22 @@ def register(
             bot_message: str = "",
             source_context: Optional[str] = None,
             context: Any = None,
-        ) -> dict:
-            return await wauldo_fact_check_action(
+        ) -> Any:
+            payload = await wauldo_fact_check_action(
                 bot_message, source_context, context=context, client=client, config=config
             )
+            return _action_result(payload)
 
         rails.register_action(_fact_check, name="wauldo_fact_check")
 
     if verify_citations:
 
-        async def _verify_citations(bot_message: str = "", sources: Optional[list] = None) -> dict:
-            return await wauldo_verify_citations_action(
+        async def _verify_citations(
+            bot_message: str = "", sources: Optional[list[dict[str, Any]]] = None
+        ) -> Any:
+            payload = await wauldo_verify_citations_action(
                 bot_message, sources, client=client, config=config
             )
+            return _action_result(payload)
 
         rails.register_action(_verify_citations, name="wauldo_verify_citations")

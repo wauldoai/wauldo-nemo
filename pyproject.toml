@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "wauldo-nemo"
-version = "0.2.1"
+version = "0.3.0"
 description = "Wauldo verification as NeMo Guardrails rails (fact-check + citations)"
 readme = "README.md"
 license = { text = "MIT" }
@@ -43,7 +43,10 @@ dependencies = [
 # policy core or unit-test it. Kept optional so CI can test without the
 # (heavy) framework install.
 nemo = ["nemoguardrails>=0.11"]
-dev = ["pytest>=7"]
+# OpenTelemetry tracing of the verify call. Optional: the rails import it
+# behind a guard and no-op when it's absent (zero overhead when unused).
+otel = ["opentelemetry-api>=1.20"]
+dev = ["pytest>=7", "mypy>=1.8"]
 
 [project.urls]
 Homepage = "https://wauldo.com"
@@ -76,3 +79,14 @@ target-version = "py39"
 # Defaults (E, F) + import sorting. Lean on purpose — a thin adapter doesn't
 # need an aggressive rule set, just no dead code / unsorted imports / drift.
 extend-select = ["I"]
+
+[tool.mypy]
+python_version = "3.9"
+strict = true
+files = ["src/wauldo_nemo"]
+
+# NeMo Guardrails, the Wauldo SDK and opentelemetry ship no type stubs — don't
+# fail strict mode on their missing types (our own logic is still strict-checked).
+[[tool.mypy.overrides]]
+module = ["nemoguardrails.*", "wauldo.*", "opentelemetry.*"]
+ignore_missing_imports = true

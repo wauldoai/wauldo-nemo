@@ -124,9 +124,40 @@ register(
 | `max_retries` | `1` | Attempts before applying `on_error`. Default `1` = fail fast: a guardrail is in the hot path, so retrying a down Wauldo with backoff would add latency to every response. With the default, `timeout` is the real latency bound. |
 | `min_citation_ratio` | `0.5` | Citation rail: minimum cited-sentence ratio. |
 | `on_insufficient_citations` | `ANNOTATE` | Citation rail decision when under-cited. |
+| `shadow` | `False` | **Audit mode**: call Wauldo, log the verdict, but never block (decision forced to `allow`). Roll out on real traffic before enforcing. |
+| `refuse_template` | `None` | Optional refusal message rendered from the failed claim. Placeholders: `{first_failed_claim}` / `{evidence}` / `{verdict}`. |
 
 Environment: `WAULDO_API_KEY` (required), `WAULDO_BASE_URL` (defaults to
 `https://api.wauldo.com`).
+
+## Production (observability, shadow mode, overhead)
+
+**Shadow / audit mode** — roll the rail out on live traffic without blocking
+anyone. It calls Wauldo and logs the real verdict, but forces `decision` to
+`allow`; the payload still carries the true `verdict` / `hallucination_rate` /
+`claims` plus `shadowed: True`. Flip `RailConfig(shadow=True)` → measure → then
+enforce.
+
+**Structured logging** — every decision emits one log line via
+`logging.getLogger("wauldo_nemo")` with `extra={"wauldo": {...}}` (request_id,
+decision, verdict, hallucination_rate, latency_ms, shadowed, note). It's
+formatter-agnostic — plain logging, structlog, or your JSON formatter all pick
+it up. The `request_id` is also in the returned payload, so you can correlate a
+NeMo turn with its Wauldo log line.
+
+**OpenTelemetry** (optional) — `pip install 'wauldo-nemo[otel]'` and the verify
+call shows up as a `wauldo.fact_check` span (decision / verdict /
+hallucination_rate / request_id attributes) inside your generation trace in
+Jaeger / Honeycomb / any OTLP backend. No-op with zero overhead when the extra
+isn't installed.
+
+**Evidence in context** — the registered rail returns a NeMo `ActionResult`, so
+downstream rails / `$history` / your UI can read `$wauldo_evidence`,
+`$wauldo_verdict`, `$wauldo_decision`, `$wauldo_request_id`.
+
+**Overhead** — the adapter's own work (context resolve + policy + logging) is
+**≈0.06 ms p50** (`python benchmarks/overhead.py`); the Wauldo API round-trip
+dominates, and `lexical` mode is sub-second.
 
 ## Troubleshooting
 

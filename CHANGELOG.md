@@ -2,6 +2,33 @@
 
 All notable changes to wauldo-nemo.
 
+## [0.3.0] - 2026-06-09
+
+Production observability + Ops-rollout features. No breaking changes; all new
+fields default to the previous behaviour.
+
+### Added
+- **Shadow / audit mode** (`RailConfig.shadow`): call Wauldo and log the verdict
+  but never block — `decision` is forced to `allow` while the real verdict stays
+  in the payload (`shadowed: True`). Roll out on real traffic before enforcing.
+- **Structured logging**: every decision emits one `logging` line with
+  `extra={"wauldo": {...}}` (request_id, decision, verdict, hallucination_rate,
+  latency_ms, shadowed, note) — formatter-agnostic, no forced JSON.
+- **`request_id` + `latency_ms`** in every returned payload, to correlate a NeMo
+  turn with its Wauldo log line.
+- **OpenTelemetry** (optional `[otel]` extra): the verify call becomes a
+  `wauldo.fact_check` span with verdict attributes. No-op when not installed.
+- **Evidence in context**: the registered rail returns a NeMo `ActionResult`, so
+  downstream rails / `$history` / UIs can read `$wauldo_evidence`,
+  `$wauldo_verdict`, `$wauldo_decision`, `$wauldo_request_id`.
+- **`RailConfig.refuse_template`**: optional refusal message rendered from the
+  failed claim (`{first_failed_claim}` / `{evidence}` / `{verdict}`).
+- `benchmarks/overhead.py`: measures the adapter's local overhead (~0.06 ms p50).
+
+### Changed
+- CI now runs `mypy --strict` (with `ruff`) and the package is fully typed under
+  strict mode.
+
 ## [0.2.1] - 2026-06-08
 
 ### Fixed

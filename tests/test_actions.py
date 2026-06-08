@@ -167,3 +167,71 @@ def test_rail_config_defaults_to_single_attempt():
     """Default must be fail-fast (1 attempt) — a verification outage cannot
     add backoff latency to every response."""
     assert RailConfig().max_retries == 1
+
+
+# ── observability: request_id + latency on every payload ─────────────────
+
+
+def test_payload_carries_request_id_and_latency():
+    fc = _fc()
+    out = run(wauldo_fact_check_action("a", "ctx", client=FakeClient(fc=fc)))
+    assert len(out["request_id"]) == 12
+    assert isinstance(out["latency_ms"], float)
+    assert out["shadowed"] is False
+
+
+# ── shadow / audit mode: never block, keep the real verdict ──────────────
+
+
+def test_shadow_mode_never_blocks_but_keeps_verdict():
+    claims = [_claim(False, evidence="source says 2010", reason="numerical_mismatch")]
+    fc = _fc(verdict="rejected", action="block", halluc=1.0, claims=claims)
+    cfg = RailConfig(shadow=True)
+    out = run(wauldo_fact_check_action("Rust 1999", "ctx", client=FakeClient(fc=fc), config=cfg))
+    # user is never blocked...
+    assert out["decision"] == "allow"
+    assert out["shadowed"] is True
+    # ...but the real verdict + evidence stay visible for logging/observers.
+    assert out["verdict"] == "rejected"
+    assert out["hallucination_rate"] == 1.0
+    assert out["claims"][0]["evidence"] == "source says 2010"
+
+
+def test_shadow_mode_on_citation_rail():
+    vc = VerifyCitationResponse(
+        citation_ratio=0.1,
+        has_sufficient_citations=False,
+        sentence_count=3,
+        citation_count=0,
+        uncited_sentences=["a"],
+        processing_time_ms=1,
+    )
+    out = run(
+        wauldo_verify_citations_action(
+            "answer", client=FakeClient(vc=vc), config=RailConfig(shadow=True)
+        )
+    )
+    assert out["decision"] == "allow"
+    assert out["shadowed"] is True
+    assert out["has_sufficient_citations"] is False
+
+
+# ── explainability: refuse_template ──────────────────────────────────────
+
+
+def test_refuse_template_renders_from_failed_claim():
+    claims = [_claim(False, evidence="source says 2010", reason="numerical_mismatch")]
+    fc = _fc(verdict="rejected", action="block", halluc=1.0, claims=claims)
+    cfg = RailConfig(refuse_template="Can't confirm '{first_failed_claim}' — source: {evidence}")
+    out = run(wauldo_fact_check_action("Rust 1999", "ctx", client=FakeClient(fc=fc), config=cfg))
+    assert out["decision"] == "refuse"
+    assert out["refuse_message"] == "Can't confirm 'Rust released 2010' — source: source says 2010"
+
+
+def test_bad_refuse_template_does_not_crash():
+    claims = [_claim(False)]
+    fc = _fc(verdict="rejected", action="block", halluc=1.0, claims=claims)
+    cfg = RailConfig(refuse_template="broken {unknown_placeholder}")
+    out = run(wauldo_fact_check_action("x", "ctx", client=FakeClient(fc=fc), config=cfg))
+    assert out["decision"] == "refuse"  # generation not crashed
+    assert out["refuse_message"] is None  # bad template skipped

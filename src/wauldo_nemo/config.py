@@ -17,6 +17,7 @@ answer explicitly:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Optional
 
 from .policy import PolicyThresholds, RailDecision
 
@@ -55,3 +56,17 @@ class RailConfig:
 
     #: Citation rail: what to do when citations are insufficient.
     on_insufficient_citations: RailDecision = RailDecision.ANNOTATE
+
+    #: Shadow / audit mode. When True, the rail still calls Wauldo and the real
+    #: verdict rides in the returned payload (``verdict`` / ``hallucination_rate``
+    #: / ``claims``) and the structured log — but the ``decision`` is forced to
+    #: ``allow`` so the bot is NEVER blocked. Run it on real traffic to measure
+    #: the rail before enforcing. The payload also carries ``shadowed: True``.
+    shadow: bool = False
+
+    #: Optional refuse-message template. When set, the fact-check action builds a
+    #: ``refuse_message`` field from the failed claims, so a Colang flow can do
+    #: ``bot $result.refuse_message`` instead of a static line. Placeholders:
+    #: ``{first_failed_claim}`` / ``{evidence}`` / ``{verdict}``. Default None →
+    #: behaviour unchanged.
+    refuse_template: Optional[str] = None
