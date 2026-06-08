@@ -37,8 +37,10 @@ async def verify_only() -> None:
         result, _ = await rails.runtime.action_dispatcher.execute_action(
             "wauldo_fact_check", {"bot_message": answer, "source_context": CONTEXT}
         )
-        print(f"[{label}] decision={result['decision']} "
-              f"verdict={result['verdict']} halluc={result['hallucination_rate']:.2f}")
+        print(
+            f"[{label}] decision={result['decision']} "
+            f"verdict={result['verdict']} halluc={result['hallucination_rate']:.2f}"
+        )
         for c in result["claims"]:
             if not c["supported"]:
                 print(f"    ✗ {c['text']!r}  evidence={c['evidence']!r} reason={c['reason']}")

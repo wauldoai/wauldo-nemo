@@ -67,3 +67,12 @@ include = [
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+[tool.ruff.lint]
+# Defaults (E, F) + import sorting. Lean on purpose — a thin adapter doesn't
+# need an aggressive rule set, just no dead code / unsorted imports / drift.
+extend-select = ["I"]

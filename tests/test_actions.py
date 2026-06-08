@@ -2,7 +2,6 @@
 
 import asyncio
 
-import pytest
 from wauldo import ClaimResult, FactCheckResponse, VerifyCitationResponse
 
 from wauldo_nemo import (
@@ -34,18 +33,29 @@ class FakeClient:
 
 def _fc(verdict="verified", action="allow", halluc=0.0, claims=None):
     return FactCheckResponse(
-        verdict=verdict, action=action, hallucination_rate=halluc, mode="lexical",
-        total_claims=len(claims or []), supported_claims=sum(c.supported for c in (claims or [])),
-        confidence=0.9, claims=claims or [], processing_time_ms=5,
+        verdict=verdict,
+        action=action,
+        hallucination_rate=halluc,
+        mode="lexical",
+        total_claims=len(claims or []),
+        supported_claims=sum(c.supported for c in (claims or [])),
+        confidence=0.9,
+        claims=claims or [],
+        processing_time_ms=5,
     )
 
 
 def _claim(supported, evidence=None, reason=None):
     return ClaimResult(
-        text="Rust released 2010", claim_type="Fact", supported=supported,
-        confidence=0.9, confidence_label="sufficient",
+        text="Rust released 2010",
+        claim_type="Fact",
+        supported=supported,
+        confidence=0.9,
+        confidence_label="sufficient",
         verdict="verified" if supported else "rejected",
-        action="allow" if supported else "block", reason=reason, evidence=evidence,
+        action="allow" if supported else "block",
+        reason=reason,
+        evidence=evidence,
     )
 
 
@@ -80,7 +90,9 @@ def test_error_fail_open_by_default():
 
 def test_error_fail_closed_when_configured():
     cfg = RailConfig(on_error=RailDecision.REFUSE)
-    out = run(wauldo_fact_check_action("a", "ctx", client=FakeClient(exc=RuntimeError()), config=cfg))
+    out = run(
+        wauldo_fact_check_action("a", "ctx", client=FakeClient(exc=RuntimeError()), config=cfg)
+    )
     assert out["decision"] == "refuse"
 
 
@@ -108,8 +120,12 @@ def test_strict_thresholds_escalate():
 
 def test_citation_rail_flags_undercited():
     vc = VerifyCitationResponse(
-        citation_ratio=0.1, has_sufficient_citations=False, sentence_count=3,
-        citation_count=0, uncited_sentences=["a", "b"], processing_time_ms=1,
+        citation_ratio=0.1,
+        has_sufficient_citations=False,
+        sentence_count=3,
+        citation_count=0,
+        uncited_sentences=["a", "b"],
+        processing_time_ms=1,
     )
     out = run(wauldo_verify_citations_action("answer", client=FakeClient(vc=vc)))
     assert out["decision"] == "annotate"
@@ -118,8 +134,12 @@ def test_citation_rail_flags_undercited():
 
 def test_citation_rail_passes_when_sufficient():
     vc = VerifyCitationResponse(
-        citation_ratio=0.9, has_sufficient_citations=True, sentence_count=3,
-        citation_count=3, uncited_sentences=[], processing_time_ms=1,
+        citation_ratio=0.9,
+        has_sufficient_citations=True,
+        sentence_count=3,
+        citation_count=3,
+        uncited_sentences=[],
+        processing_time_ms=1,
     )
     out = run(wauldo_verify_citations_action("answer", client=FakeClient(vc=vc)))
     assert out["decision"] == "allow"

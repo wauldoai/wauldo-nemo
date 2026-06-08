@@ -199,9 +199,7 @@ async def wauldo_verify_citations_action(
             await _close(client)
 
     decision = (
-        RailDecision.PASS
-        if result.has_sufficient_citations
-        else config.on_insufficient_citations
+        RailDecision.PASS if result.has_sufficient_citations else config.on_insufficient_citations
     )
     return {
         "decision": _DECISION_TO_STR[decision],
@@ -246,7 +244,9 @@ def register(
         # `context` is auto-injected by NeMo (the conversation context dict);
         # `source_context` lets a flow pass the ground-truth explicitly.
         async def _fact_check(
-            bot_message: str = "", source_context: Optional[str] = None, context: Any = None,
+            bot_message: str = "",
+            source_context: Optional[str] = None,
+            context: Any = None,
         ) -> dict:
             return await wauldo_fact_check_action(
                 bot_message, source_context, context=context, client=client, config=config
@@ -255,6 +255,7 @@ def register(
         rails.register_action(_fact_check, name="wauldo_fact_check")
 
     if verify_citations:
+
         async def _verify_citations(bot_message: str = "", sources: Optional[list] = None) -> dict:
             return await wauldo_verify_citations_action(
                 bot_message, sources, client=client, config=config
