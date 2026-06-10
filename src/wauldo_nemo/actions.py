@@ -79,6 +79,7 @@ def _degraded(decision: RailDecision, note: str) -> dict[str, Any]:
         "supported_claims": 0,
         "total_claims": 0,
         "claims": [],
+        "relevance": None,
         "note": note,
     }
 
@@ -105,6 +106,31 @@ def _resolve_context(source_context: Optional[str], context: Any) -> Optional[st
     if isinstance(context, dict):
         return _chunks_to_str(context.get("relevant_chunks"))
     return None
+
+
+def _resolve_query(query: Optional[str], context: Any) -> Optional[str]:
+    """Explicit `query` wins; otherwise auto-read the user's question from
+    NeMo's injected context dict (`last_user_message`, maintained by the
+    colang runtime) — zero-config relevance for chat bots."""
+    if query and query.strip():
+        return query
+    if isinstance(context, dict):
+        last = context.get("last_user_message")
+        if isinstance(last, str) and last.strip():
+            return last
+    return None
+
+
+def _relevance_digest(relevance: Any) -> Optional[dict[str, Any]]:
+    """Flatten the SDK's `RelevanceResult` (score / verdict / rationale) so the
+    payload stays a plain dict consumable from Colang."""
+    if relevance is None:
+        return None
+    return {
+        "score": relevance.score,
+        "verdict": relevance.verdict,
+        "rationale": relevance.rationale,
+    }
 
 
 def _log_decision(kind: str, payload: dict[str, Any]) -> None:
@@ -153,6 +179,7 @@ def _refuse_message(template: str, claims: list[dict[str, Any]], verdict: str) -
 async def wauldo_fact_check_action(
     bot_message: str,
     source_context: Optional[str] = None,
+    query: Optional[str] = None,
     *,
     context: Any = None,
     client: Optional[AsyncHttpClient] = None,
@@ -167,9 +194,16 @@ async def wauldo_fact_check_action(
     (it injects the conversation context dict), which is why the explicit
     argument is ``source_context``.
 
+    ``query`` is the user's question, used by the server to compute a
+    ``relevance`` block (decoupled from the factual verdict — a verified
+    answer can still be off-topic). If omitted, it is auto-read from the
+    context (``last_user_message``). Disable with
+    ``RailConfig(relevance_mode=None)``.
+
     Returns a dict consumable from Colang with a ``decision`` of
     ``allow`` / ``annotate`` / ``refuse``, plus the per-claim ``claims``
-    (each with ``evidence`` / ``reason``).
+    (each with ``evidence`` / ``reason``) and ``relevance``
+    (``score`` / ``verdict`` / ``rationale``, or ``None``).
     """
     config = config or RailConfig(thresholds=thresholds or PolicyThresholds())
     request_id = uuid.uuid4().hex[:12]
@@ -182,13 +216,24 @@ async def wauldo_fact_check_action(
             _degraded(config.on_missing_context, "no_context"), config, request_id, None, kind
         )
 
+    resolved_query = _resolve_query(query, context) if config.relevance_mode else None
+
     own_client = client is None
     client = client or _client_from_env(config)
     t0 = time.perf_counter()
     with span("wauldo.fact_check") as sp:
         sp.set_attribute("wauldo.request_id", request_id)
         try:
-            result = await client.fact_check(bot_message, resolved, mode=config.mode)
+            if resolved_query:
+                result = await client.fact_check(
+                    bot_message,
+                    resolved,
+                    mode=config.mode,
+                    query=resolved_query,
+                    relevance_mode=config.relevance_mode,
+                )
+            else:
+                result = await client.fact_check(bot_message, resolved, mode=config.mode)
         except Exception as exc:  # noqa: BLE001 — network / 5xx / timeout
             latency_ms = round((time.perf_counter() - t0) * 1000, 1)
             logger.warning(
@@ -211,6 +256,7 @@ async def wauldo_fact_check_action(
         latency_ms = round((time.perf_counter() - t0) * 1000, 1)
         decision = decide(result, config.thresholds)
         claims = _claims_digest(result.claims)
+        relevance = _relevance_digest(getattr(result, "relevance", None))
         payload: dict[str, Any] = {
             "decision": _DECISION_TO_STR[decision],
             "verdict": result.verdict,
@@ -220,8 +266,20 @@ async def wauldo_fact_check_action(
             "supported_claims": result.supported_claims,
             "total_claims": result.total_claims,
             "claims": claims,
+            "relevance": relevance,
+            "relevance_warning": getattr(result, "relevance_warning", None),
             "note": None,
         }
+        if config.thresholds.min_relevance_score > 0.0 and relevance is None:
+            # The floor is armed but no score was computed — `decide()` already
+            # escalated to ANNOTATE; say WHY, so logs/traces can tell
+            # "relevance disabled by config" from "score unavailable".
+            payload["note"] = (
+                "relevance_floor_set_but_disabled"
+                if config.relevance_mode is None
+                else "relevance_floor_set_but_unavailable"
+            )
+            sp.set_attribute("wauldo.relevance_gate_reason", payload["note"])
         if config.refuse_template and decision == RailDecision.REFUSE:
             payload["refuse_message"] = _refuse_message(
                 config.refuse_template, claims, result.verdict
@@ -230,6 +288,9 @@ async def wauldo_fact_check_action(
         sp.set_attribute("wauldo.verdict", result.verdict)
         sp.set_attribute("wauldo.hallucination_rate", result.hallucination_rate)
         sp.set_attribute("wauldo.total_claims", result.total_claims)
+        if relevance is not None:
+            sp.set_attribute("wauldo.relevance_score", relevance["score"])
+            sp.set_attribute("wauldo.relevance_verdict", relevance["verdict"])
 
     return _finalize(payload, config, request_id, latency_ms, kind)
 
@@ -324,6 +385,7 @@ def _action_result(payload: dict[str, Any]) -> Any:
             "wauldo_decision": payload["decision"],
             "wauldo_verdict": payload.get("verdict"),
             "wauldo_evidence": evidence,
+            "wauldo_relevance": payload.get("relevance"),
             "wauldo_request_id": payload.get("request_id"),
         },
     )
@@ -364,10 +426,11 @@ def register(
         async def _fact_check(
             bot_message: str = "",
             source_context: Optional[str] = None,
+            query: Optional[str] = None,
             context: Any = None,
         ) -> Any:
             payload = await wauldo_fact_check_action(
-                bot_message, source_context, context=context, client=client, config=config
+                bot_message, source_context, query, context=context, client=client, config=config
             )
             return _action_result(payload)
 

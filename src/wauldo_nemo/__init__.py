@@ -18,7 +18,7 @@ from .actions import (
 from .config import RailConfig
 from .policy import PolicyThresholds, RailDecision, decide
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 
 __all__ = [
     "register",

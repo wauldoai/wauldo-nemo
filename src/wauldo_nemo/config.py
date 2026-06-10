@@ -29,6 +29,13 @@ class RailConfig:
     thresholds: PolicyThresholds = field(default_factory=PolicyThresholds)
     mode: str = "lexical"
 
+    #: Relevance computation mode sent along with the query (``"fast"`` =
+    #: server-side embedding cosine, sub-ms, no LLM cost). Relevance is only
+    #: computed when a query is available (explicit argument or auto-read from
+    #: NeMo's ``$last_user_message``). Set to ``None`` to disable relevance
+    #: entirely — no query is sent and the response carries ``relevance: None``.
+    relevance_mode: Optional[str] = "fast"
+
     #: No context to verify against → can't fact-check. Default: annotate.
     on_missing_context: RailDecision = RailDecision.ANNOTATE
 

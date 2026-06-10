@@ -45,12 +45,22 @@ class PolicyThresholds:
       downgraded to ANNOTATE.
     - `max_hallucination_rate`: above this, the response is REFUSED
       regardless of the server action.
+    - `min_relevance_score`: relevance gate, a SEPARATE policy axis from
+      factuality (a response can be fully verified AND off-topic). When > 0
+      and the server's `relevance.score` is below it, the decision escalates
+      to `on_low_relevance`. If the floor is set but relevance could not be
+      computed (no query / embeddings unavailable), the response is ANNOTATEd
+      — the gate is never silently skipped, and never invents a score.
+    - `on_low_relevance`: escalation applied when relevance is below the
+      floor. ANNOTATE by default; REFUSE to block off-topic-but-true answers.
     - `strict`: when True, a server `review` becomes REFUSE instead of
       ANNOTATE.
     """
 
     min_confidence: float = 0.0
     max_hallucination_rate: float = 1.0
+    min_relevance_score: float = 0.0
+    on_low_relevance: RailDecision = RailDecision.ANNOTATE
     strict: bool = False
 
 
@@ -73,6 +83,18 @@ def decide(result: FactCheckLike, thresholds: PolicyThresholds) -> RailDecision:
 
     if result.confidence < thresholds.min_confidence:
         decision = max(decision, RailDecision.ANNOTATE)
+
+    if thresholds.min_relevance_score > 0.0:
+        # `relevance` is optional on the response (and absent on older SDK
+        # stand-ins) — getattr keeps pre-0.4 conformers working at runtime.
+        relevance = getattr(result, "relevance", None)
+        score = getattr(relevance, "score", None)
+        if score is None:
+            # Floor demanded but relevance not computed: flag it, never
+            # pretend the gate passed.
+            decision = max(decision, RailDecision.ANNOTATE)
+        elif score < thresholds.min_relevance_score:
+            decision = max(decision, thresholds.on_low_relevance)
 
     if thresholds.strict and decision == RailDecision.ANNOTATE:
         decision = RailDecision.REFUSE

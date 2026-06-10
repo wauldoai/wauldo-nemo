@@ -36,3 +36,9 @@ define bot refuse uncited answer
 
 define bot inform answer is under cited
   "(Note: parts of this answer are not backed by a cited source.)"
+
+# Relevance (0.4.0): the fact-check payload also carries $result.relevance
+# (score / verdict: relevant|partial|off_topic), computed against the user's
+# question (auto-read from $last_user_message). Gate on it with
+# PolicyThresholds(min_relevance_score=..., on_low_relevance=...) in Python —
+# or branch in the flow: if $result.relevance and $result.relevance.verdict == "off_topic"

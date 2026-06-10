@@ -112,14 +112,48 @@ register(
 )
 ```
 
+## Relevance gating — catch off-topic-but-true answers
+
+Factuality and relevance are different failure modes: an answer can be fully
+verified against the sources AND not answer the question that was asked. Since
+0.4.0 the fact-check rail also sends the user's question (auto-read from NeMo's
+`$last_user_message`, or passed explicitly as `query=`) and gets back a
+`relevance` block — `{score, verdict}` with verdict `relevant` / `partial` /
+`off_topic` — **decoupled from the factual verdict**.
+
+By default relevance is informational only (it never changes the decision).
+Opt in to gate on it:
+
+```python
+register(
+    rails,
+    thresholds=PolicyThresholds(
+        min_relevance_score=0.85,             # below → escalate
+        on_low_relevance=RailDecision.REFUSE,  # block off-topic-but-true
+    ),
+)
+```
+
+Escalate-only, like every other knob: relevance can never soften a factual
+block. If the floor is set but relevance couldn't be computed, the response is
+annotated with a `note` saying why — the gate is never silently skipped.
+Disable relevance entirely with `RailConfig(relevance_mode=None)` — but don't
+combine that with a floor: an armed `min_relevance_score` can never pass
+without a score, so every call would annotate
+(`note="relevance_floor_set_but_disabled"`). Downstream rails can read
+`$wauldo_relevance`.
+
 ## Configuration (`RailConfig`)
 
 | Field | Default | Effect |
 |-------|---------|--------|
 | `thresholds.min_confidence` | `0.0` | Below it, an `allow` is downgraded to *annotate*. |
 | `thresholds.max_hallucination_rate` | `1.0` | Above it, the response is *refused*. |
+| `thresholds.min_relevance_score` | `0.0` | Relevance floor (inert at `0.0`). Below it, the decision escalates to `on_low_relevance`. |
+| `thresholds.on_low_relevance` | `ANNOTATE` | Escalation for low relevance; `REFUSE` blocks off-topic-but-true answers. |
 | `thresholds.strict` | `False` | A server `review` becomes a *refusal*. |
 | `mode` | `"lexical"` | `lexical` (fast) / `hybrid` / `semantic`. |
+| `relevance_mode` | `"fast"` | Relevance computation (server-side embedding cosine, no LLM cost). `None` disables relevance. |
 | `on_missing_context` | `ANNOTATE` | No context to verify against → can't fact-check. |
 | `on_error` | `PASS` | Wauldo unreachable → **fail-open** (flag) vs `REFUSE` (fail-closed). |
 | `timeout` | `8.0` | Timeout (seconds) on a **single** verification attempt. |
@@ -155,7 +189,7 @@ isn't installed.
 
 **Evidence in context** — the registered rail returns a NeMo `ActionResult`, so
 downstream rails / `$history` / your UI can read `$wauldo_evidence`,
-`$wauldo_verdict`, `$wauldo_decision`, `$wauldo_request_id`.
+`$wauldo_verdict`, `$wauldo_decision`, `$wauldo_relevance`, `$wauldo_request_id`.
 
 **Overhead** — the adapter's own work (context resolve + policy + logging) is
 **≈0.06 ms p50** (`python benchmarks/overhead.py`); the Wauldo API round-trip

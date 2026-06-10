@@ -2,6 +2,28 @@
 
 All notable changes to wauldo-nemo.
 
+## [0.4.0] - 2026-06-11
+
+Relevance gating — catch off-topic-but-true answers. No breaking changes;
+relevance is informational by default and the gate is opt-in.
+
+### Added
+- **Relevance in the payload**: the fact-check rail sends the user's question
+  (auto-read from NeMo's `$last_user_message`, or explicit `query=`) and the
+  payload carries a `relevance` block (`score` / `verdict` / `rationale`),
+  decoupled from the factual verdict. `$wauldo_relevance` joins the context
+  updates for downstream rails.
+- **`PolicyThresholds.min_relevance_score`** (+ `on_low_relevance`): opt-in
+  relevance floor. Escalate-only — it can annotate or refuse an
+  off-topic-but-true answer, never soften a factual block. If the floor is set
+  but relevance couldn't be computed, the response is annotated (the gate is
+  never silently skipped).
+- **`RailConfig.relevance_mode`** (default `"fast"`, server-side embedding
+  cosine, no LLM cost): set to `None` to disable relevance entirely.
+
+### Changed
+- Requires `wauldo>=0.20.0` (adds `query` / `relevance_mode` on `fact_check`).
+
 ## [0.3.0] - 2026-06-09
 
 Production observability + Ops-rollout features. No breaking changes; all new
