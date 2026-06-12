@@ -37,6 +37,9 @@ async def verify_only() -> None:
         result, _ = await rails.runtime.action_dispatcher.execute_action(
             "wauldo_fact_check", {"bot_message": answer, "source_context": CONTEXT}
         )
+        # Called directly (outside a flow), the dispatcher hands back the raw
+        # ActionResult; the verdict payload lives in .return_value.
+        result = getattr(result, "return_value", result)
         print(
             f"[{label}] decision={result['decision']} "
             f"verdict={result['verdict']} halluc={result['hallucination_rate']:.2f}"
