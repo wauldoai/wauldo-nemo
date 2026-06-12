@@ -53,8 +53,8 @@ pip install 'wauldo-nemo[nemo]'
 export WAULDO_API_KEY=tig_live_...
 ```
 
-> Pulls `wauldo[async]>=0.19.1` automatically (the rails use the async client
-> so they never block NeMo's event loop).
+> Pulls `wauldo>=0.20.0` and `aiohttp` automatically (the rails use the async
+> client so they never block NeMo's event loop).
 
 ## ⚠️ Wauldo is the output rail, not the main LLM
 
